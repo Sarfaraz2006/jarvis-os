@@ -325,7 +325,7 @@ fun JarvisApp(
                 contentAlignment = Alignment.Center
             ) {
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = BackgroundDark),
+                    colors = CardDefaults.cardColors(containerColor = colors.background),
                     modifier = Modifier
                         .width(320.dp)
                         .border(1.dp, colors.bright, RoundedCornerShape(8.dp)),
