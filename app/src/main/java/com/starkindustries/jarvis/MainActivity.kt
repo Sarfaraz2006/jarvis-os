@@ -130,9 +130,11 @@ class MainActivity : ComponentActivity() {
                         voiceEngine?.stopListening()
                     },
                     apiKey = geminiClient.getApiKey(),
-                    onApiKeySaved = { key ->
+                    activeModel = geminiClient.getModel(),
+                    onSettingsSaved = { key, model ->
                         geminiClient.saveApiKey(key)
-                        logTelemetry("Stark satellite uplink key recalibrated.", "info")
+                        geminiClient.saveModel(model)
+                        logTelemetry("Stark uplink key & model '$model' recalibrated.", "info")
                     },
                     flashlightState = flashlightOn,
                     onFlashlightToggle = { toggleFlashlight(it) }

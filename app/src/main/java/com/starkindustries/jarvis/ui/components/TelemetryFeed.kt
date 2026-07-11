@@ -1,5 +1,6 @@
 package com.starkindustries.jarvis.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -18,10 +19,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.starkindustries.jarvis.ui.theme.JarvisTheme
+import java.util.Locale
 
 data class TelemetryLog(
     val time: String,
@@ -46,14 +51,17 @@ fun TelemetryFeed(
 
     Column(
         modifier = modifier
-            .border(1.dp, themeColors.dim, RoundedCornerShape(4.dp))
-            .padding(8.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color.White.copy(alpha = 0.02f))
+            .border(1.dp, themeColors.dim.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+            .padding(10.dp)
     ) {
         Text(
-            text = "TELEMETRY OVERLINK FEED",
+            text = "TELEMETRY REAL-TIME LINK",
             color = themeColors.bright,
-            fontSize = 12.sp,
-            fontFamily = FontFamily.Monospace,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Black,
+            fontFamily = FontFamily.SansSerif,
             modifier = Modifier.padding(bottom = 6.dp)
         )
         
@@ -63,8 +71,8 @@ fun TelemetryFeed(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             items(logs) { log ->
-                val logColor = when (log.type.toLowerCase()) {
-                    "error" -> JarvisTheme.colors.bright // Inherited alert style
+                val logColor = when (log.type.lowercase(Locale.ROOT)) {
+                    "error" -> JarvisTheme.colors.bright
                     "warning" -> JarvisTheme.colors.glow
                     else -> themeColors.textSecondary
                 }
@@ -75,16 +83,16 @@ fun TelemetryFeed(
                     Text(
                         text = "[${log.time}]",
                         color = themeColors.bright.copy(alpha = 0.6f),
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = log.message,
                         color = logColor,
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace,
-                        lineHeight = 14.sp
+                        lineHeight = 13.sp
                     )
                 }
             }

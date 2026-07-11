@@ -1,5 +1,6 @@
 package com.starkindustries.jarvis.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,7 +15,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.starkindustries.jarvis.ui.theme.JarvisTheme
@@ -31,41 +35,44 @@ fun DiagnosticsPanel(
     onShieldsChange: (Float) -> Unit,
     onLifeSupportChange: (Float) -> Unit
 ) {
-    val themeColors = JarvisTheme.colors
+    val colors = JarvisTheme.colors
 
     Column(
         modifier = modifier
-            .border(1.dp, themeColors.dim, RoundedCornerShape(4.dp))
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color.White.copy(alpha = 0.02f))
+            .border(1.dp, colors.dim.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
             .padding(12.dp)
     ) {
         Text(
-            text = "SYSTEM POWER RATIOS",
-            color = themeColors.bright,
-            fontSize = 12.sp,
-            fontFamily = FontFamily.Monospace,
+            text = "SYSTEM POWER DIAGNOSTICS",
+            color = colors.bright,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Black,
+            fontFamily = FontFamily.SansSerif,
             modifier = Modifier.padding(bottom = 8.dp)
         )
 
         DiagnosticSlider(
-            label = "THRUSTERS",
+            label = "THRUSTER GIMBALS",
             value = thrusters,
             onValueChange = onThrustersChange
         )
         Spacer(modifier = Modifier.height(4.dp))
         DiagnosticSlider(
-            label = "REPULSORS",
+            label = "REPULSOR FIELD",
             value = repulsors,
             onValueChange = onRepulsorsChange
         )
         Spacer(modifier = Modifier.height(4.dp))
         DiagnosticSlider(
-            label = "SHIELDS",
+            label = "DEFLECTOR SHIELDS",
             value = shields,
             onValueChange = onShieldsChange
         )
         Spacer(modifier = Modifier.height(4.dp))
         DiagnosticSlider(
-            label = "LIFE SUPPORT",
+            label = "ENVIRONMENT CELLS",
             value = lifeSupport,
             onValueChange = onLifeSupportChange
         )
@@ -78,7 +85,7 @@ fun DiagnosticSlider(
     value: Float,
     onValueChange: (Float) -> Unit
 ) {
-    val themeColors = JarvisTheme.colors
+    val colors = JarvisTheme.colors
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -87,15 +94,17 @@ fun DiagnosticSlider(
         ) {
             Text(
                 text = label,
-                color = themeColors.textPrimary,
+                color = colors.textPrimary,
                 fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = FontFamily.SansSerif,
+                fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f)
             )
             Text(
                 text = "${(value * 100).toInt()}%",
-                color = themeColors.bright,
+                color = colors.bright,
                 fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace
             )
         }
@@ -103,11 +112,11 @@ fun DiagnosticSlider(
             value = value,
             onValueChange = onValueChange,
             colors = SliderDefaults.colors(
-                thumbColor = themeColors.bright,
-                activeTrackColor = themeColors.bright,
-                inactiveTrackColor = themeColors.dark
+                thumbColor = colors.bright,
+                activeTrackColor = colors.bright,
+                inactiveTrackColor = colors.dark.copy(alpha = 0.6f)
             ),
-            modifier = Modifier.height(24.dp)
+            modifier = Modifier.height(20.dp)
         )
     }
 }

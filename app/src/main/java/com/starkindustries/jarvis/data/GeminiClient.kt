@@ -24,6 +24,14 @@ class GeminiClient(context: Context) {
         return sharedPrefs.getString("GEMINI_API_KEY", "") ?: ""
     }
 
+    fun saveModel(model: String) {
+        sharedPrefs.edit().putString("GEMINI_MODEL", model).apply()
+    }
+
+    fun getModel(): String {
+        return sharedPrefs.getString("GEMINI_MODEL", "gemini-1.5-flash") ?: "gemini-1.5-flash"
+    }
+
     suspend fun generateResponse(prompt: String, isFriday: Boolean): String = withContext(Dispatchers.IO) {
         val apiKey = getApiKey()
         if (apiKey.isEmpty()) {
@@ -40,25 +48,25 @@ class GeminiClient(context: Context) {
             "Address the user as 'Sir'. Keep replies concise, cool, and highly analytical."
         }
 
-        val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey"
+        val model = getModel()
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
         val mediaType = "application/json; charset=utf-8".toMediaType()
 
-        val requestBodyJson = """
-            {
-                "contents": [
-                    {
-                        "parts": [
-                            {"text": "$persona\n\nUser: $prompt\nJarvis:"}
-                        ]
-                    }
-                ],
-                "generationConfig": {
-                    "temperature": 0.7,
-                    "maxOutputTokens": 200
-                }
-            }
-        """.trimIndent()
-
+        val fullPrompt = "$persona\n\nUser: $prompt\nJarvis:"
+        val requestMap = mapOf(
+            "contents" to listOf(
+                mapOf(
+                    "parts" to listOf(
+                        mapOf("text" to fullPrompt)
+                    )
+                )
+            ),
+            "generationConfig" to mapOf(
+                "temperature" to 0.7,
+                "maxOutputTokens" to 200
+            )
+        )
+        val requestBodyJson = gson.toJson(requestMap)
         val body = requestBodyJson.toRequestBody(mediaType)
         val request = Request.Builder()
             .url(url)
@@ -68,7 +76,8 @@ class GeminiClient(context: Context) {
         try {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext "Uplink handshake failed, sir. Response error: ${response.code}"
+                    val errorBody = response.body?.string() ?: ""
+                    return@withContext "Uplink handshake failed, sir. Code: ${response.code}. Details: $errorBody"
                 }
                 val bodyString = response.body?.string() ?: return@withContext "No response data from Stark satellites."
                 val jsonObject = gson.fromJson(bodyString, JsonObject::class.java)
@@ -83,9 +92,9 @@ class GeminiClient(context: Context) {
 
                 return@withContext text.trim()
             }
-        } catch (e: IOException) {
+        } catch (e: Exception) {
             e.printStackTrace()
-            return@withContext "Sir, connection failed. Satellite link interrupted."
+            return@withContext "Sir, connection failed: ${e.localizedMessage}. Satellite link interrupted."
         }
     }
 }
