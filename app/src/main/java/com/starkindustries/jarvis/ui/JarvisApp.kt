@@ -1,14 +1,26 @@
 package com.starkindustries.jarvis.ui
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -17,17 +29,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.starkindustries.jarvis.ui.components.ArcReactorHud
-import com.starkindustries.jarvis.ui.components.DiagnosticsPanel
-import com.starkindustries.jarvis.ui.components.TelemetryFeed
+import com.starkindustries.jarvis.ChatMessage
+import com.starkindustries.jarvis.ui.components.TelemetrySidebar
 import com.starkindustries.jarvis.ui.components.TelemetryLog
 import com.starkindustries.jarvis.ui.theme.JarvisTheme
 import com.starkindustries.jarvis.ui.theme.ThemeMode
+import kotlin.math.sin
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,6 +54,8 @@ fun JarvisApp(
     batteryPercent: Int,
     isCharging: Boolean,
     logs: List<TelemetryLog>,
+    chatMessages: List<ChatMessage>,
+    onSendMessage: (String) -> Unit,
     speechInput: String,
     assistantReply: String,
     isListening: Boolean,
@@ -53,337 +72,446 @@ fun JarvisApp(
     var tempKey by remember { mutableStateOf(apiKey) }
     var selectedModel by remember { mutableStateOf(activeModel) }
 
-    // Synchronize local states when values change from outside
-    LaunchedEffect(apiKey) {
-        tempKey = apiKey
-    }
-    LaunchedEffect(activeModel) {
-        selectedModel = activeModel
+    var textInput by remember { mutableStateOf("") }
+    var showTelemetryDrawer by remember { mutableStateOf(false) }
+
+    val focusManager = LocalFocusManager.current
+    val listState = rememberLazyListState()
+
+    // Auto-scroll chat feed to bottom
+    LaunchedEffect(chatMessages.size) {
+        if (chatMessages.isNotEmpty()) {
+            listState.animateScrollToItem(chatMessages.size - 1)
+        }
     }
 
-    // Sliders state
+    // Diagnostics sliders state
     var thrusters by remember { mutableStateOf(0.90f) }
     var repulsors by remember { mutableStateOf(0.75f) }
     var shields by remember { mutableStateOf(0.80f) }
     var lifeSupport by remember { mutableStateOf(0.95f) }
 
-    // Pulsing animations for dynamic hud lines
-    val infiniteTransition = rememberInfiniteTransition(label = "hud_pulse")
-    val hudPulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 0.9f,
+    // Pulsing animation for elements
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val waveOffset by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 2f * Math.PI.toFloat(),
         animationSpec = infiniteRepeatable(
-            animation = tween(1800, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
+            animation = tween(2000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
         ),
-        label = "hud_pulse_alpha"
+        label = "wave_offset"
     )
 
-    // Deep space gradient background
     val bgBrush = Brush.verticalGradient(
         colors = listOf(
-            Color(0xFF020408),
-            Color(0xFF070C16),
-            Color(0xFF0F182E)
+            Color(0xFF030712),
+            Color(0xFF090F1C),
+            Color(0xFF111827)
         )
     )
 
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(bgBrush)
-            .padding(16.dp)
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            
-            // 1. Sleek Modern HUD Header
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color.White.copy(alpha = 0.02f))
-                    .border(1.dp, colors.dim.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(colors.bright)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "STARK HOLOGRAPHIC LINK",
-                            color = Color.White,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Black,
-                            fontFamily = FontFamily.SansSerif
-                        )
-                    }
-                    Text(
-                        text = "ACTIVE MATRIX: ${themeMode.name} SYSTEM",
-                        color = colors.bright.copy(alpha = hudPulseAlpha),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
+        val useSplitScreen = maxWidth > 650.dp
 
-                // Battery Telemetry & Settings
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(
-                        horizontalAlignment = Alignment.End,
-                        modifier = Modifier.padding(end = 16.dp)
-                    ) {
+        Row(modifier = Modifier.fillMaxSize()) {
+            
+            // ================= CHAT COMPONENT (LEFT / FULL SCREEN) =================
+            Column(
+                modifier = Modifier
+                    .weight(1.8f)
+                    .fillMaxHeight()
+                    .padding(12.dp)
+            ) {
+                // Header Panel
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.White.copy(alpha = 0.02f))
+                        .border(1.dp, colors.dim.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.bright)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (themeMode == ThemeMode.FRIDAY) "F.R.I.D.A.Y. CORE" else "J.A.R.V.I.S. CLIENT",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                        }
+                        
+                        // Active model status indicator
                         Text(
-                            text = "ARK-CORE CELL STATUS",
-                            color = colors.textSecondary,
-                            fontSize = 8.sp,
-                            fontFamily = FontFamily.SansSerif,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "$batteryPercent% ${if (isCharging) "[STABILIZED]" else "[DISCHARGING]"}",
-                            color = colors.bright,
-                            fontSize = 13.sp,
+                            text = "MODEL: ${activeModel.uppercase()}",
+                            color = colors.bright.copy(alpha = 0.7f),
+                            fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace
                         )
                     }
-                    IconButton(
-                        onClick = { showSettings = true },
-                        modifier = Modifier
-                            .size(40.dp)
-                            .border(1.dp, colors.bright.copy(alpha = 0.6f), RoundedCornerShape(20.dp))
-                            .background(colors.dark.copy(alpha = 0.4f))
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Config System",
-                            tint = colors.bright
-                        )
-                    }
-                }
-            }
+                        // Quick switch models dropdown representation
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(colors.bright.copy(alpha = 0.1f))
+                                .border(1.dp, colors.bright.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
+                                .clickable { showSettings = true }
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = activeModel.replace("gemini-", "").uppercase(),
+                                color = colors.bright,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
 
-            Spacer(modifier = Modifier.height(14.dp))
+                        // Toggle Control Panel / Telemetry
+                        if (!useSplitScreen) {
+                            IconButton(
+                                onClick = { showTelemetryDrawer = !showTelemetryDrawer },
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.05f))
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Dashboard,
+                                    contentDescription = "Diagnostics Dashboard",
+                                    tint = colors.bright
+                                )
+                            }
+                        }
 
-            // 2. Main Work Area (Grid-like layout using Row and Column)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                
-                // Left Panel: System Controls & Modes
-                Column(
-                    modifier = Modifier
-                        .weight(1.1f)
-                        .fillMaxHeight(),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    // Diagnostic Sliders
-                    DiagnosticsPanel(
-                        modifier = Modifier.weight(1.3f),
-                        thrusters = thrusters,
-                        repulsors = repulsors,
-                        shields = shields,
-                        lifeSupport = lifeSupport,
-                        onThrustersChange = { thrusters = it },
-                        onRepulsorsChange = { repulsors = it },
-                        onShieldsChange = { shields = it },
-                        onLifeSupportChange = { lifeSupport = it }
-                    )
-
-                    // Theme selector buttons
-                    Column(
-                        modifier = Modifier
-                            .weight(1.1f)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color.White.copy(alpha = 0.02f))
-                            .border(1.dp, colors.dim.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
-                            .padding(12.dp)
-                    ) {
-                        Text(
-                            text = "INTELLIGENCE SYNC MODE",
-                            color = colors.bright,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Black,
-                            fontFamily = FontFamily.SansSerif,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-                        ThemeButton(
-                            label = "J.A.R.V.I.S. (UK Male)",
-                            active = themeMode == ThemeMode.JARVIS,
-                            onClick = { onThemeChange(ThemeMode.JARVIS) },
-                            color = colors.bright
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        ThemeButton(
-                            label = "F.R.I.D.A.Y. (US Female)",
-                            active = themeMode == ThemeMode.FRIDAY,
-                            onClick = { onThemeChange(ThemeMode.FRIDAY) },
-                            color = colors.bright
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        ThemeButton(
-                            label = "SAFETY MATRIX (Green)",
-                            active = themeMode == ThemeMode.SAFETY,
-                            onClick = { onThemeChange(ThemeMode.SAFETY) },
-                            color = colors.bright
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        ThemeButton(
-                            label = "RED ALERT ENGINE",
-                            active = themeMode == ThemeMode.RED_ALERT,
-                            onClick = { onThemeChange(ThemeMode.RED_ALERT) },
-                            color = colors.bright
-                        )
+                        IconButton(
+                            onClick = { showSettings = true },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.05f))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "Calibrate Engine",
+                                tint = colors.bright
+                            )
+                        }
                     }
                 }
 
-                // Right Panel: Core HUD Arc Reactor Visuals & Listening Triggers
-                Column(
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Chat Messages Feed
+                Box(
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxHeight()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color.White.copy(alpha = 0.02f))
-                        .border(1.dp, colors.dim.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
-                        .padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.White.copy(alpha = 0.01f))
+                        .border(1.dp, colors.dim.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
-                    Text(
-                        text = "ARK-REACTOR POWER GRID",
-                        color = colors.bright.copy(alpha = 0.8f),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.padding(bottom = 12.dp)
-                    )
+                    if (chatMessages.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "System link established. Input query below.",
+                                color = colors.textSecondary.copy(alpha = 0.6f),
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(chatMessages) { msg ->
+                                val isUser = msg.sender == "User"
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+                                ) {
+                                    Card(
+                                        shape = RoundedCornerShape(
+                                            topStart = 12.dp,
+                                            topEnd = 12.dp,
+                                            bottomStart = if (isUser) 12.dp else 2.dp,
+                                            bottomEnd = if (isUser) 2.dp else 12.dp
+                                        ),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (isUser) colors.bright.copy(alpha = 0.06f) else Color.White.copy(alpha = 0.02f)
+                                        ),
+                                        modifier = Modifier
+                                            .widthIn(max = 280.dp)
+                                            .border(
+                                                1.dp,
+                                                if (isUser) colors.bright.copy(alpha = 0.4f) else colors.dim.copy(alpha = 0.2f),
+                                                RoundedCornerShape(
+                                                    topStart = 12.dp,
+                                                    topEnd = 12.dp,
+                                                    bottomStart = if (isUser) 12.dp else 2.dp,
+                                                    bottomEnd = if (isUser) 2.dp else 12.dp
+                                                )
+                                            )
+                                    ) {
+                                        Column(modifier = Modifier.padding(10.dp)) {
+                                            Text(
+                                                text = msg.sender.uppercase(),
+                                                color = if (isUser) colors.bright else colors.textSecondary,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                fontFamily = FontFamily.Monospace,
+                                                modifier = Modifier.padding(bottom = 4.dp)
+                                            )
+                                            Text(
+                                                text = msg.text,
+                                                color = Color.White,
+                                                fontSize = 12.sp,
+                                                fontFamily = FontFamily.SansSerif,
+                                                lineHeight = 16.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Voice Visualizer Waves (Google Assistant / Siri Style)
+                if (isListening || assistantReply.isNotEmpty()) {
                     Box(
                         modifier = Modifier
-                            .size(200.dp)
-                            .border(1.dp, colors.dim.copy(alpha = 0.3f), RoundedCornerShape(100.dp)),
+                            .fillMaxWidth()
+                            .height(28.dp)
+                            .padding(horizontal = 16.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        ArcReactorHud(
-                            modifier = Modifier.fillMaxSize(),
-                            powerPercent = (thrusters * 25 + repulsors * 25 + shields * 25 + lifeSupport * 25).toInt(),
-                            onClick = {
-                                onFlashlightToggle(!flashlightState)
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val centerY = size.height / 2
+                            val width = size.width
+                            val wavePath = Path()
+                            val numWaves = 3
+
+                            for (w in 0 until numWaves) {
+                                val waveAlpha = when (w) {
+                                    0 -> 0.8f
+                                    1 -> 0.5f
+                                    else -> 0.3f
+                                }
+                                val waveColor = colors.bright.copy(alpha = waveAlpha)
+                                val amplitude = if (isListening) (10f + w * 4f) else 4f
+                                val frequency = 0.015f + w * 0.005f
+
+                                wavePath.reset()
+                                wavePath.moveTo(0f, centerY)
+                                for (x in 0..width.toInt() step 5) {
+                                    val y = centerY + amplitude * sin(x * frequency + waveOffset + w)
+                                    wavePath.lineTo(x.toFloat(), y)
+                                }
+                                drawPath(
+                                    path = wavePath,
+                                    color = waveColor,
+                                    style = Stroke(width = 2.dp.toPx())
+                                )
                             }
-                        )
+                        }
                     }
+                }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
-                    Text(
-                        text = if (isListening) "[ VOCAL STREAM ACTIVE ]" else "[ VOICE HANDSHAKE STANDBY ]",
-                        color = if (isListening) colors.bright else colors.textSecondary,
-                        fontSize = 9.sp,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.padding(bottom = 10.dp)
-                    )
-
-                    // Audio control
-                    Button(
+                // Modern Input Field & Control pill bar
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Voice Mic Pill Button
+                    IconButton(
                         onClick = { if (isListening) onStopListen() else onStartListen() },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isListening) colors.bright else Color.Transparent,
-                            contentColor = if (isListening) Color.Black else colors.bright
-                        ),
                         modifier = Modifier
-                            .border(1.5.dp, colors.bright, RoundedCornerShape(24.dp))
-                            .height(48.dp)
-                            .width(200.dp),
-                        shape = RoundedCornerShape(24.dp)
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(if (isListening) colors.bright else Color.White.copy(alpha = 0.03f))
+                            .border(
+                                1.dp,
+                                if (isListening) colors.bright else colors.bright.copy(alpha = 0.4f),
+                                CircleShape
+                            )
                     ) {
                         Icon(
                             imageVector = if (isListening) Icons.Default.Mic else Icons.Default.MicOff,
-                            contentDescription = "Vocal Switch",
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = if (isListening) "DISCONNECT" else "SYNC VOICE",
-                            fontFamily = FontFamily.SansSerif,
-                            fontWeight = FontWeight.Black,
-                            fontSize = 12.sp
+                            contentDescription = "Voice Input Control",
+                            tint = if (isListening) Color.Black else colors.bright
                         )
                     }
+
+                    // Text Input Bar
+                    OutlinedTextField(
+                        value = textInput,
+                        onValueChange = { textInput = it },
+                        placeholder = {
+                            Text(
+                                "Ask Jarvis / Friday...",
+                                color = colors.textSecondary.copy(alpha = 0.7f),
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = colors.bright,
+                            unfocusedBorderColor = colors.dim.copy(alpha = 0.5f),
+                            focusedContainerColor = Color.White.copy(alpha = 0.01f),
+                            unfocusedContainerColor = Color.White.copy(alpha = 0.01f),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                        keyboardActions = KeyboardActions(onSend = {
+                            if (textInput.trim().isNotEmpty()) {
+                                onSendMessage(textInput)
+                                textInput = ""
+                                focusManager.clearFocus()
+                            }
+                        }),
+                        shape = RoundedCornerShape(24.dp),
+                        modifier = Modifier.weight(1f),
+                        trailingIcon = {
+                            if (textInput.trim().isNotEmpty()) {
+                                IconButton(
+                                    onClick = {
+                                        onSendMessage(textInput)
+                                        textInput = ""
+                                        focusManager.clearFocus()
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Send,
+                                        contentDescription = "Send",
+                                        tint = colors.bright
+                                    )
+                                }
+                            }
+                        }
+                    )
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // 3. Lower Console: Telemetry & Speech logs
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(150.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                // Rolling logs
-                TelemetryFeed(
-                    modifier = Modifier.weight(1.1f),
-                    logs = logs
-                )
-
-                // Dialog Panel
-                Column(
+            // ================= STARK TELEMETRY BAR (RIGHT COLUMN FOR TABLETS) =================
+            if (useSplitScreen) {
+                TelemetrySidebar(
+                    themeMode = themeMode,
+                    onThemeChange = onThemeChange,
+                    batteryPercent = batteryPercent,
+                    isCharging = isCharging,
+                    logs = logs,
+                    thrusters = thrusters,
+                    repulsors = repulsors,
+                    shields = shields,
+                    lifeSupport = lifeSupport,
+                    onThrustersChange = { thrusters = it },
+                    onRepulsorsChange = { repulsors = it },
+                    onShieldsChange = { shields = it },
+                    onLifeSupportChange = { lifeSupport = it },
+                    flashlightState = flashlightState,
+                    onFlashlightToggle = onFlashlightToggle,
+                    colors = colors,
                     modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color.White.copy(alpha = 0.02f))
-                        .border(1.dp, colors.dim.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
-                        .padding(12.dp)
+                        .weight(1.1f)
+                        .fillMaxHeight()
+                        .padding(top = 12.dp, bottom = 12.dp, end = 12.dp)
+                )
+            }
+        }
+
+        // ================= STARK TELEMETRY PANEL (DRAWER FOR PHONES) =================
+        if (!useSplitScreen) {
+            AnimatedVisibility(
+                visible = showTelemetryDrawer,
+                enter = slideInHorizontally(initialOffsetX = { it }),
+                exit = slideOutHorizontally(targetOffsetX = { it })
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.5f))
+                        .clickable { showTelemetryDrawer = false }
                 ) {
-                    Text(
-                        text = "NEURAL COGNITIVE STREAM",
-                        color = colors.bright,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Black,
-                        fontFamily = FontFamily.SansSerif,
-                        modifier = Modifier.padding(bottom = 6.dp)
-                    )
-                    Text(
-                        text = "INPUT: ${speechInput.ifEmpty { "Waiting for telemetry lock..." }}",
-                        color = colors.textPrimary,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        maxLines = 2
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "OUTPUT: ${assistantReply.ifEmpty { "Standing by for vocal synchronization, sir." }}",
-                        color = colors.bright,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        maxLines = 4
-                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(300.dp)
+                            .background(Color(0xFF070C18))
+                            .border(1.dp, colors.bright.copy(alpha = 0.2f), RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
+                            .align(Alignment.CenterEnd)
+                            .clickable { /* prevent clicks close */ }
+                            .padding(16.dp)
+                    ) {
+                        TelemetrySidebar(
+                            themeMode = themeMode,
+                            onThemeChange = onThemeChange,
+                            batteryPercent = batteryPercent,
+                            isCharging = isCharging,
+                            logs = logs,
+                            thrusters = thrusters,
+                            repulsors = repulsors,
+                            shields = shields,
+                            lifeSupport = lifeSupport,
+                            onThrustersChange = { thrusters = it },
+                            onRepulsorsChange = { repulsors = it },
+                            onShieldsChange = { shields = it },
+                            onLifeSupportChange = { lifeSupport = it },
+                            flashlightState = flashlightState,
+                            onFlashlightToggle = onFlashlightToggle,
+                            colors = colors,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
             }
         }
 
-        // 4. API Configurations Popup with Glassmorphism
+        // ================= CONFIGURATIONS POPUP =================
         if (showSettings) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.85f))
-                    .clickable { /* Block clicks through */ },
+                    .clickable { /* Block clicks */ },
                 contentAlignment = Alignment.Center
             ) {
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0D1222)),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0E1428)),
                     modifier = Modifier
                         .width(340.dp)
                         .border(1.5.dp, colors.bright, RoundedCornerShape(12.dp)),
@@ -430,11 +558,12 @@ fun JarvisApp(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         
+                        // Valid models list from AI Studio:
                         val models = listOf(
                             "gemini-1.5-flash",
                             "gemini-1.5-pro",
                             "gemini-2.0-flash",
-                            "gemini-2.5-flash"
+                            "gemini-2.0-flash-thinking-exp"
                         )
                         
                         Column(
@@ -465,11 +594,13 @@ fun JarvisApp(
                                             contentPadding = PaddingValues(vertical = 4.dp)
                                         ) {
                                             Text(
-                                                text = modelName.replace("gemini-", ""),
+                                                text = modelName.replace("gemini-", "").replace("-thinking", "").replace("-exp", "").uppercase(),
                                                 fontSize = 9.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 fontFamily = FontFamily.Monospace,
-                                                textAlign = TextAlign.Center
+                                                textAlign = TextAlign.Center,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
                                             )
                                         }
                                     }
@@ -505,37 +636,5 @@ fun JarvisApp(
                 }
             }
         }
-    }
-}
-
-@Composable
-fun ThemeButton(
-    label: String,
-    active: Boolean,
-    onClick: () -> Unit,
-    color: Color
-) {
-    Button(
-        onClick = onClick,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = if (active) color.copy(alpha = 0.2f) else Color.Transparent,
-            contentColor = if (active) color else Color.White
-        ),
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(
-                1.dp,
-                if (active) color else color.copy(alpha = 0.2f),
-                RoundedCornerShape(6.dp)
-            ),
-        shape = RoundedCornerShape(6.dp),
-        contentPadding = PaddingValues(vertical = 10.dp)
-    ) {
-        Text(
-            text = label,
-            fontSize = 11.sp,
-            fontFamily = FontFamily.SansSerif,
-            fontWeight = FontWeight.Bold
-        )
     }
 }

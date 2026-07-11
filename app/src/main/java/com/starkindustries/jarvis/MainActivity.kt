@@ -30,6 +30,14 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
+
+data class ChatMessage(
+    val id: String,
+    val sender: String,
+    val text: String,
+    val timestamp: String
+)
 
 class MainActivity : ComponentActivity() {
 
@@ -47,7 +55,9 @@ class MainActivity : ComponentActivity() {
     private var aiReplyText by mutableStateOf("")
     private var isListeningState by mutableStateOf(false)
     private var flashlightOn by mutableStateOf(false)
+    
     private val telemetryLogs = mutableStateListOf<TelemetryLog>()
+    private val chatMessages = mutableStateListOf<ChatMessage>()
 
     // Battery Broadcast Receiver
     private val batteryReceiver = object : BroadcastReceiver() {
@@ -74,6 +84,16 @@ class MainActivity : ComponentActivity() {
 
         logTelemetry("System loading. Initializing Stark kernel core...", "info")
         logTelemetry("Calibrating audio hum generator...", "info")
+
+        // Add initial greeting to Chat
+        chatMessages.add(
+            ChatMessage(
+                id = "init_greet",
+                sender = "Jarvis",
+                text = "Online and ready, sir. Secure satellite uplink active. Standing by for configurations or vocal commands.",
+                timestamp = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+            )
+        )
 
         // 2. Request permissions (Record Audio for voice control, Camera for Flashlight)
         val requestPermissionLauncher = registerForActivityResult(
@@ -114,10 +134,15 @@ class MainActivity : ComponentActivity() {
                         val assistantName = if (mode == ThemeMode.FRIDAY) "F.R.I.D.A.Y." else "J.A.R.V.I.S."
                         voiceEngine?.isFriday = (mode == ThemeMode.FRIDAY)
                         voiceEngine?.speak("System theme reconfigured to $assistantName core telemetry, sir.")
+                        logTelemetry("Theme changed to $assistantName configuration.", "info")
                     },
                     batteryPercent = batteryPercent,
                     isCharging = isBatteryCharging,
                     logs = telemetryLogs,
+                    chatMessages = chatMessages,
+                    onSendMessage = { text ->
+                        processVoiceCommand(text)
+                    },
                     speechInput = speechInputText,
                     assistantReply = aiReplyText,
                     isListening = isListeningState,
@@ -132,7 +157,7 @@ class MainActivity : ComponentActivity() {
                     apiKey = geminiClient.getApiKey(),
                     activeModel = geminiClient.getModel(),
                     onSettingsSaved = { key, model ->
-                        geminiClient.saveApiKey(key)
+                        geminiClient.saveApiKey(key.trim())
                         geminiClient.saveModel(model)
                         logTelemetry("Stark uplink key & model '$model' recalibrated.", "info")
                     },
@@ -163,8 +188,20 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun processVoiceCommand(command: String) {
-        val query = command.toLowerCase(Locale.ROOT)
+        if (command.trim().isEmpty()) return
+        val query = command.lowercase(Locale.ROOT)
         logTelemetry("Analyzing speech token: \"$command\"", "info")
+
+        // Add user message to chat list
+        val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+        chatMessages.add(
+            ChatMessage(
+                id = UUID.randomUUID().toString(),
+                sender = "User",
+                text = command,
+                timestamp = time
+            )
+        )
 
         lifecycleScope.launch {
             // Local Hardware control shortcuts
@@ -172,11 +209,13 @@ class MainActivity : ComponentActivity() {
                 query.contains("flashlight on") || query.contains("torch on") -> {
                     toggleFlashlight(true)
                     aiReplyText = "Flashlight activated, sir. Illuminating surrounding sectors."
+                    addAssistantMessage(aiReplyText)
                     voiceEngine?.speak(aiReplyText)
                 }
                 query.contains("flashlight off") || query.contains("torch off") -> {
                     toggleFlashlight(false)
                     aiReplyText = "Flashlight deactivated, sir. Optical stealth mode initialized."
+                    addAssistantMessage(aiReplyText)
                     voiceEngine?.speak(aiReplyText)
                 }
                 query.contains("open") -> {
@@ -187,6 +226,7 @@ class MainActivity : ComponentActivity() {
                     } else {
                         "Sir, I could not locate an application named $appToOpen."
                     }
+                    addAssistantMessage(aiReplyText)
                     voiceEngine?.speak(aiReplyText)
                 }
                 query.contains("red alert") || query.contains("alert red") -> {
@@ -194,6 +234,7 @@ class MainActivity : ComponentActivity() {
                     voiceEngine?.isFriday = false
                     updateSystemHumFrequency(ThemeMode.RED_ALERT)
                     aiReplyText = "Red alert activated. Combat grids energized. Thrusters and repulsors to maximum!"
+                    addAssistantMessage(aiReplyText)
                     voiceEngine?.speak(aiReplyText)
                 }
                 query.contains("nominal") || query.contains("stand down") || query.contains("jarvis") -> {
@@ -201,6 +242,7 @@ class MainActivity : ComponentActivity() {
                     voiceEngine?.isFriday = false
                     updateSystemHumFrequency(ThemeMode.JARVIS)
                     aiReplyText = "Nominal conditions restored, sir. Standing down weapon controls."
+                    addAssistantMessage(aiReplyText)
                     voiceEngine?.speak(aiReplyText)
                 }
                 query.contains("friday mode") || query.contains("friday") -> {
@@ -208,11 +250,13 @@ class MainActivity : ComponentActivity() {
                     voiceEngine?.isFriday = true
                     updateSystemHumFrequency(ThemeMode.FRIDAY)
                     aiReplyText = "Friday protocol online. System diagnostics ready, boss. What's the play?"
+                    addAssistantMessage(aiReplyText)
                     voiceEngine?.speak(aiReplyText)
                 }
                 query.contains("status") || query.contains("diagnostics") -> {
                     val chargingStr = if (isBatteryCharging) "charging" else "discharging"
                     aiReplyText = "Suit battery is currently at $batteryPercent percent and is $chargingStr. Core temperature is nominal, sir."
+                    addAssistantMessage(aiReplyText)
                     voiceEngine?.speak(aiReplyText)
                 }
                 else -> {
@@ -220,10 +264,24 @@ class MainActivity : ComponentActivity() {
                     aiReplyText = "Routing command to satellites..."
                     val reply = geminiClient.generateResponse(command, activeTheme == ThemeMode.FRIDAY)
                     aiReplyText = reply
+                    addAssistantMessage(reply)
                     voiceEngine?.speak(reply)
                 }
             }
         }
+    }
+
+    private fun addAssistantMessage(text: String) {
+        val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+        val senderName = if (activeTheme == ThemeMode.FRIDAY) "Friday" else "Jarvis"
+        chatMessages.add(
+            ChatMessage(
+                id = UUID.randomUUID().toString(),
+                sender = senderName,
+                text = text,
+                timestamp = time
+            )
+        )
     }
 
     private fun toggleFlashlight(enabled: Boolean) {
