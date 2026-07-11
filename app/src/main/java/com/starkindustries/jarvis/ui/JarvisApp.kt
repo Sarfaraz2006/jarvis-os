@@ -36,7 +36,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.starkindustries.jarvis.ChatMessage
@@ -63,14 +62,19 @@ fun JarvisApp(
     onStopListen: () -> Unit,
     apiKey: String,
     activeModel: String,
-    onSettingsSaved: (String, String) -> Unit,
+    apiFormat: String,
+    apiBaseUrl: String,
+    onSettingsSaved: (String, String, String, String) -> Unit, // key, model, format, baseUrl
     flashlightState: Boolean,
     onFlashlightToggle: (Boolean) -> Unit
 ) {
     val colors = JarvisTheme.colors
     var showSettings by remember { mutableStateOf(false) }
+    
     var tempKey by remember { mutableStateOf(apiKey) }
-    var selectedModel by remember { mutableStateOf(activeModel) }
+    var tempModel by remember { mutableStateOf(activeModel) }
+    var tempFormat by remember { mutableStateOf(apiFormat) }
+    var tempBaseUrl by remember { mutableStateOf(apiBaseUrl) }
 
     var textInput by remember { mutableStateOf("") }
     var showTelemetryDrawer by remember { mutableStateOf(false) }
@@ -78,12 +82,11 @@ fun JarvisApp(
     val focusManager = LocalFocusManager.current
     val listState = rememberLazyListState()
 
-    // Auto-scroll chat feed to bottom
-    LaunchedEffect(chatMessages.size) {
-        if (chatMessages.isNotEmpty()) {
-            listState.animateScrollToItem(chatMessages.size - 1)
-        }
-    }
+    // Sync state
+    LaunchedEffect(apiKey) { tempKey = apiKey }
+    LaunchedEffect(activeModel) { tempModel = activeModel }
+    LaunchedEffect(apiFormat) { tempFormat = apiFormat }
+    LaunchedEffect(apiBaseUrl) { tempBaseUrl = apiBaseUrl }
 
     // Diagnostics sliders state
     var thrusters by remember { mutableStateOf(0.90f) }
@@ -91,7 +94,7 @@ fun JarvisApp(
     var shields by remember { mutableStateOf(0.80f) }
     var lifeSupport by remember { mutableStateOf(0.95f) }
 
-    // Pulsing animation for elements
+    // Pulsing animation for visualizer wave offsets
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val waveOffset by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -148,7 +151,7 @@ fun JarvisApp(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = if (themeMode == ThemeMode.FRIDAY) "F.R.I.D.A.Y. CORE" else "J.A.R.V.I.S. CLIENT",
+                                text = if (themeMode == ThemeMode.FRIDAY) "F.R.I.D.A.Y. SYSTEM" else "J.A.R.V.I.S. INTERFACE",
                                 color = Color.White,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Black,
@@ -156,9 +159,8 @@ fun JarvisApp(
                             )
                         }
                         
-                        // Active model status indicator
                         Text(
-                            text = "MODEL: ${activeModel.uppercase()}",
+                            text = "FORMAT: $apiFormat  |  MODEL: ${activeModel.uppercase()}",
                             color = colors.bright.copy(alpha = 0.7f),
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
@@ -170,7 +172,7 @@ fun JarvisApp(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Quick switch models dropdown representation
+                        // Quick switch configurations dropdown representation
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
@@ -188,7 +190,6 @@ fun JarvisApp(
                             )
                         }
 
-                        // Toggle Control Panel / Telemetry
                         if (!useSplitScreen) {
                             IconButton(
                                 onClick = { showTelemetryDrawer = !showTelemetryDrawer },
@@ -239,7 +240,7 @@ fun JarvisApp(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "System link established. Input query below.",
+                                text = "System link established. Input vocal or text command...",
                                 color = colors.textSecondary.copy(alpha = 0.6f),
                                 fontSize = 12.sp,
                                 fontFamily = FontFamily.Monospace
@@ -501,7 +502,7 @@ fun JarvisApp(
             }
         }
 
-        // ================= CONFIGURATIONS POPUP =================
+        // ================= QUANTUM CONFIGURATIONS POPUP =================
         if (showSettings) {
             Box(
                 modifier = Modifier
@@ -511,74 +512,61 @@ fun JarvisApp(
                 contentAlignment = Alignment.Center
             ) {
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0E1428)),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0D1224)),
                     modifier = Modifier
-                        .width(340.dp)
+                        .width(350.dp)
                         .border(1.5.dp, colors.bright, RoundedCornerShape(12.dp)),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Column(
+                    LazyColumn(
                         modifier = Modifier.padding(20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        Text(
-                            text = "STARK ENCRYPTION KEY",
-                            color = colors.bright,
-                            fontWeight = FontWeight.Black,
-                            fontFamily = FontFamily.SansSerif,
-                            fontSize = 15.sp
-                        )
-                        Spacer(modifier = Modifier.height(14.dp))
-                        
-                        OutlinedTextField(
-                            value = tempKey,
-                            onValueChange = { tempKey = it },
-                            label = { Text("Gemini API Key", fontFamily = FontFamily.Monospace) },
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = colors.bright,
-                                unfocusedBorderColor = colors.dim,
-                                focusedLabelColor = colors.bright,
-                                unfocusedLabelColor = colors.textSecondary,
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White
-                            ),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        
-                        Spacer(modifier = Modifier.height(16.dp))
-                        
-                        Text(
-                            text = "SELECT QUANTUM MODEL",
-                            color = colors.bright,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.SansSerif,
-                            fontSize = 11.sp,
-                            modifier = Modifier.align(Alignment.Start)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        
-                        // Valid models list from AI Studio:
-                        val models = listOf(
-                            "gemini-1.5-flash",
-                            "gemini-1.5-pro",
-                            "gemini-2.0-flash",
-                            "gemini-2.0-flash-thinking-exp"
-                        )
-                        
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            models.chunked(2).forEach { rowModels ->
+                        item {
+                            Text(
+                                text = "CALIBRATE STARK LINK",
+                                color = colors.bright,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = FontFamily.SansSerif,
+                                fontSize = 16.sp
+                            )
+                        }
+
+                        // API Format selection row
+                        item {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    text = "API TYPE",
+                                    color = colors.bright,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.SansSerif,
+                                    modifier = Modifier.padding(bottom = 6.dp)
+                                )
                                 Row(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.fillMaxWidth()
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    rowModels.forEach { modelName ->
-                                        val isSelected = selectedModel == modelName
+                                    val formats = listOf("GEMINI", "OPENAI", "OLLAMA")
+                                    formats.forEach { fmt ->
+                                        val isSelected = tempFormat == fmt
                                         Button(
-                                            onClick = { selectedModel = modelName },
+                                            onClick = {
+                                                tempFormat = fmt
+                                                // Prepopulate defaults base urls
+                                                tempBaseUrl = when (fmt) {
+                                                    "OPENAI" -> "https://api.openai.com"
+                                                    "OLLAMA" -> "http://10.0.2.2:11434"
+                                                    else -> "https://generativelanguage.googleapis.com"
+                                                }
+                                                // Update default model placeholders
+                                                tempModel = when (fmt) {
+                                                    "OPENAI" -> "gpt-4o"
+                                                    "OLLAMA" -> "llama3"
+                                                    else -> "gemini-1.5-flash"
+                                                }
+                                            },
                                             colors = ButtonDefaults.buttonColors(
                                                 containerColor = if (isSelected) colors.bright else Color.Transparent,
                                                 contentColor = if (isSelected) Color.Black else Color.White
@@ -594,13 +582,10 @@ fun JarvisApp(
                                             contentPadding = PaddingValues(vertical = 4.dp)
                                         ) {
                                             Text(
-                                                text = modelName.replace("gemini-", "").replace("-thinking", "").replace("-exp", "").uppercase(),
+                                                text = fmt,
                                                 fontSize = 9.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                fontFamily = FontFamily.Monospace,
-                                                textAlign = TextAlign.Center,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
+                                                fontFamily = FontFamily.Monospace
                                             )
                                         }
                                     }
@@ -608,28 +593,81 @@ fun JarvisApp(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(20.dp))
-                        
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            TextButton(
-                                onClick = { showSettings = false },
-                                modifier = Modifier.weight(1f)
+                        // API Base URL Field
+                        item {
+                            OutlinedTextField(
+                                value = tempBaseUrl,
+                                onValueChange = { tempBaseUrl = it },
+                                label = { Text("API Base URL", fontFamily = FontFamily.Monospace) },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = colors.bright,
+                                    unfocusedBorderColor = colors.dim,
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White
+                                ),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+
+                        // API Key Input
+                        item {
+                            OutlinedTextField(
+                                value = tempKey,
+                                onValueChange = { tempKey = it },
+                                label = { Text("Access Key / Token", fontFamily = FontFamily.Monospace) },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = colors.bright,
+                                    unfocusedBorderColor = colors.dim,
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White
+                                ),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+
+                        // Custom Model Input
+                        item {
+                            OutlinedTextField(
+                                value = tempModel,
+                                onValueChange = { tempModel = it },
+                                label = { Text("Model Identifier (e.g. gemini-2.5-flash)", fontFamily = FontFamily.Monospace) },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = colors.bright,
+                                    unfocusedBorderColor = colors.dim,
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White
+                                ),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+
+                        // Save & Cancel Buttons
+                        item {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Text("CANCEL", color = colors.textSecondary, fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold)
-                            }
-                            Button(
-                                onClick = {
-                                    onSettingsSaved(tempKey, selectedModel)
-                                    showSettings = false
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = colors.bright),
-                                shape = RoundedCornerShape(6.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("CALIBRATE", color = Color.Black, fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold)
+                                TextButton(
+                                    onClick = { showSettings = false },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("CANCEL", color = colors.textSecondary, fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold)
+                                }
+                                Button(
+                                    onClick = {
+                                        onSettingsSaved(tempKey, tempModel, tempFormat, tempBaseUrl)
+                                        showSettings = false
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = colors.bright),
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("CALIBRATE", color = Color.Black, fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
                     }

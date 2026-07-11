@@ -3,21 +3,26 @@ package com.starkindustries.jarvis.audio
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import java.util.Locale
 
 class VoiceEngine(
     private val context: Context,
     private val onSpeechResult: (String) -> Unit,
-    private val onTelemetryLog: (String, String) -> Unit
+    private val onTelemetryLog: (String, String) -> Unit,
+    private val onSpeechDone: () -> Unit
 ) {
     private var tts: TextToSpeech? = null
     private var speechRecognizer: SpeechRecognizer? = null
     private var speechIntent: Intent? = null
     private var isTtsReady = false
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     var isFriday = false
         set(value) {
@@ -31,6 +36,26 @@ class VoiceEngine(
             if (status == TextToSpeech.SUCCESS) {
                 isTtsReady = true
                 configureTtsVoice()
+                
+                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) {
+                        onTelemetryLog("Vocal playback started.", "info")
+                    }
+
+                    override fun onDone(utteranceId: String?) {
+                        if (utteranceId == "jarvis_speech_id") {
+                            // Run on main thread to update UI and restart listener safely
+                            mainHandler.post {
+                                onSpeechDone()
+                            }
+                        }
+                    }
+
+                    override fun onError(utteranceId: String?) {
+                        onTelemetryLog("Vocal synthesizer playback error.", "error")
+                    }
+                })
+
                 onTelemetryLog("Vocal synthesizer loaded. Language calibrated.", "info")
             } else {
                 onTelemetryLog("Vocal synthesizer failure. Offline mode activated.", "error")
@@ -94,6 +119,13 @@ class VoiceEngine(
                     else -> "Interface disruption"
                 }
                 onTelemetryLog("Acoustic calibration error: $message", "error")
+                
+                // If it was speech timeout or no match, wait a bit and restart listening
+                if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+                    mainHandler.postDelayed({
+                        onSpeechDone()
+                    }, 800)
+                }
             }
 
             override fun onResults(results: Bundle?) {
@@ -111,7 +143,10 @@ class VoiceEngine(
 
     fun speak(text: String) {
         if (!isTtsReady) return
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvis_speech_id")
+        val params = Bundle().apply {
+            putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "jarvis_speech_id")
+        }
+        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, "jarvis_speech_id")
         onTelemetryLog("Jarvis responds: \"$text\"", "info")
     }
 

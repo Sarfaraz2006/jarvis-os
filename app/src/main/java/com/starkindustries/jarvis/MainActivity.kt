@@ -156,10 +156,14 @@ class MainActivity : ComponentActivity() {
                     },
                     apiKey = geminiClient.getApiKey(),
                     activeModel = geminiClient.getModel(),
-                    onSettingsSaved = { key, model ->
+                    apiFormat = geminiClient.getApiFormat(),
+                    apiBaseUrl = geminiClient.getBaseUrl(),
+                    onSettingsSaved = { key, model, format, baseUrl ->
                         geminiClient.saveApiKey(key.trim())
-                        geminiClient.saveModel(model)
-                        logTelemetry("Stark uplink key & model '$model' recalibrated.", "info")
+                        geminiClient.saveModel(model.trim())
+                        geminiClient.saveApiFormat(format)
+                        geminiClient.saveBaseUrl(baseUrl.trim())
+                        logTelemetry("Stark uplink calibrated. Model: $model. Format: $format.", "info")
                     },
                     flashlightState = flashlightOn,
                     onFlashlightToggle = { toggleFlashlight(it) }
@@ -172,12 +176,17 @@ class MainActivity : ComponentActivity() {
         voiceEngine = VoiceEngine(
             context = this,
             onSpeechResult = { text ->
-                isListeningState = false
                 speechInputText = text
                 processVoiceCommand(text)
             },
             onTelemetryLog = { msg, type ->
                 logTelemetry(msg, type)
+            },
+            onSpeechDone = {
+                // Restart listening automatically in voice mode for continuous conversation
+                if (isListeningState) {
+                    voiceEngine?.startListening()
+                }
             }
         )
     }
@@ -260,7 +269,7 @@ class MainActivity : ComponentActivity() {
                     voiceEngine?.speak(aiReplyText)
                 }
                 else -> {
-                    // Send to Gemini AI satellite uplink
+                    // Send to AI satellite uplink
                     aiReplyText = "Routing command to satellites..."
                     val reply = geminiClient.generateResponse(command, activeTheme == ThemeMode.FRIDAY)
                     aiReplyText = reply
