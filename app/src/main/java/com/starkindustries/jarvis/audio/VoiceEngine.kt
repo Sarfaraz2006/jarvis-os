@@ -125,7 +125,7 @@ class VoiceEngine(
 
     fun release() {
         tts?.stop()
-        tts?.release()
+        tts?.shutdown()
         speechRecognizer?.destroy()
     }
 }
