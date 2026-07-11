@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -18,6 +19,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Send
@@ -31,6 +33,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -58,8 +61,12 @@ fun JarvisApp(
     speechInput: String,
     assistantReply: String,
     isListening: Boolean,
+    isVoiceOverlayOpen: Boolean,
+    voiceModeStatus: String,
+    liveTranscript: String,
     onStartListen: () -> Unit,
     onStopListen: () -> Unit,
+    onToggleVoiceMute: () -> Unit,
     apiKey: String,
     activeModel: String,
     apiFormat: String,
@@ -94,7 +101,7 @@ fun JarvisApp(
     var shields by remember { mutableStateOf(0.80f) }
     var lifeSupport by remember { mutableStateOf(0.95f) }
 
-    // Pulsing animation for visualizer wave offsets
+    // Visualizer wave animations
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val waveOffset by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -106,6 +113,24 @@ fun JarvisApp(
         label = "wave_offset"
     )
 
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 0.88f,
+        targetValue = 1.12f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = when (voiceModeStatus) {
+                    "LISTENING" -> 700
+                    "THINKING" -> 350
+                    "SPEAKING" -> 900
+                    else -> 1800
+                },
+                easing = FastOutSlowInEasing
+            ),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "orb_pulse"
+    )
+
     val bgBrush = Brush.verticalGradient(
         colors = listOf(
             Color(0xFF030712),
@@ -114,561 +139,776 @@ fun JarvisApp(
         )
     )
 
-    BoxWithConstraints(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(bgBrush)
     ) {
-        val useSplitScreen = maxWidth > 650.dp
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val useSplitScreen = maxWidth > 650.dp
 
-        Row(modifier = Modifier.fillMaxSize()) {
-            
-            // ================= CHAT COMPONENT (LEFT / FULL SCREEN) =================
-            Column(
-                modifier = Modifier
-                    .weight(1.8f)
-                    .fillMaxHeight()
-                    .padding(12.dp)
-            ) {
-                // Header Panel
-                Row(
+            Row(modifier = Modifier.fillMaxSize()) {
+                
+                // ================= CHAT COMPONENT (LEFT / FULL SCREEN) =================
+                Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color.White.copy(alpha = 0.02f))
-                        .border(1.dp, colors.dim.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .weight(1.8f)
+                        .fillMaxHeight()
+                        .padding(12.dp)
                 ) {
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(colors.bright)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = if (themeMode == ThemeMode.FRIDAY) "F.R.I.D.A.Y. SYSTEM" else "J.A.R.V.I.S. INTERFACE",
-                                color = Color.White,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Black,
-                                fontFamily = FontFamily.SansSerif
-                            )
-                        }
-                        
-                        Text(
-                            text = "FORMAT: $apiFormat  |  MODEL: ${activeModel.uppercase()}",
-                            color = colors.bright.copy(alpha = 0.7f),
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-
+                    // Header Panel
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.02f))
+                            .border(1.dp, colors.dim.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Quick switch configurations dropdown representation
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(colors.bright.copy(alpha = 0.1f))
-                                .border(1.dp, colors.bright.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
-                                .clickable { showSettings = true }
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(colors.bright)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (themeMode == ThemeMode.FRIDAY) "F.R.I.D.A.Y. CORE" else "J.A.R.V.I.S. INTERFACE",
+                                    color = Color.White,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Black,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                            }
+                            
                             Text(
-                                text = activeModel.replace("gemini-", "").uppercase(),
-                                color = colors.bright,
-                                fontSize = 10.sp,
+                                text = "FORMAT: $apiFormat  |  MODEL: ${activeModel.uppercase()}",
+                                color = colors.bright.copy(alpha = 0.7f),
+                                fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace
                             )
                         }
 
-                        if (!useSplitScreen) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(colors.bright.copy(alpha = 0.1f))
+                                    .border(1.dp, colors.bright.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
+                                    .clickable { showSettings = true }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = activeModel.replace("gemini-", "").uppercase(),
+                                    color = colors.bright,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+
+                            if (!useSplitScreen) {
+                                IconButton(
+                                    onClick = { showTelemetryDrawer = !showTelemetryDrawer },
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = 0.05f))
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Dashboard,
+                                        contentDescription = "Diagnostics Dashboard",
+                                        tint = colors.bright
+                                    )
+                                }
+                            }
+
                             IconButton(
-                                onClick = { showTelemetryDrawer = !showTelemetryDrawer },
+                                onClick = { showSettings = true },
                                 modifier = Modifier
                                     .size(36.dp)
                                     .clip(CircleShape)
                                     .background(Color.White.copy(alpha = 0.05f))
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Dashboard,
-                                    contentDescription = "Diagnostics Dashboard",
+                                    imageVector = Icons.Default.Settings,
+                                    contentDescription = "Calibrate Engine",
                                     tint = colors.bright
                                 )
                             }
                         }
-
-                        IconButton(
-                            onClick = { showSettings = true },
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(Color.White.copy(alpha = 0.05f))
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Calibrate Engine",
-                                tint = colors.bright
-                            )
-                        }
                     }
-                }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                // Chat Messages Feed
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color.White.copy(alpha = 0.01f))
-                        .border(1.dp, colors.dim.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                ) {
-                    if (chatMessages.isEmpty()) {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "System link established. Input vocal or text command...",
-                                color = colors.textSecondary.copy(alpha = 0.6f),
-                                fontSize = 12.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                    } else {
-                        LazyColumn(
-                            state = listState,
-                            modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            items(chatMessages) { msg ->
-                                val isUser = msg.sender == "User"
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+                    // Chat Messages Feed / Home screen prompts layout
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.01f))
+                            .border(1.dp, colors.dim.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        if (chatMessages.size <= 1) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Text(
+                                    text = if (themeMode == ThemeMode.FRIDAY) "How can I assist you today, Boss?" else "How can I assist you today, Sir?",
+                                    color = colors.bright,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.SansSerif,
+                                    modifier = Modifier.padding(bottom = 20.dp),
+                                    textAlign = TextAlign.Center
+                                )
+                                
+                                val prompts = listOf(
+                                    "status" to "🛡️ Suit diagnostics parameters",
+                                    "flashlight on" to "💡 Activate optical flashlight",
+                                    "red alert" to "🚨 Initiate Red Alert state",
+                                    "friday mode" to "⚡ Calibrate Friday matrix"
+                                )
+                                
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.widthIn(max = 280.dp)
                                 ) {
-                                    Card(
-                                        shape = RoundedCornerShape(
-                                            topStart = 12.dp,
-                                            topEnd = 12.dp,
-                                            bottomStart = if (isUser) 12.dp else 2.dp,
-                                            bottomEnd = if (isUser) 2.dp else 12.dp
-                                        ),
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = if (isUser) colors.bright.copy(alpha = 0.06f) else Color.White.copy(alpha = 0.02f)
-                                        ),
-                                        modifier = Modifier
-                                            .widthIn(max = 280.dp)
-                                            .border(
-                                                1.dp,
-                                                if (isUser) colors.bright.copy(alpha = 0.4f) else colors.dim.copy(alpha = 0.2f),
-                                                RoundedCornerShape(
-                                                    topStart = 12.dp,
-                                                    topEnd = 12.dp,
-                                                    bottomStart = if (isUser) 12.dp else 2.dp,
-                                                    bottomEnd = if (isUser) 2.dp else 12.dp
-                                                )
-                                            )
-                                    ) {
-                                        Column(modifier = Modifier.padding(10.dp)) {
+                                    prompts.forEach { (cmd, label) ->
+                                        Card(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { onSendMessage(cmd) },
+                                            colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.03f)),
+                                            shape = RoundedCornerShape(8.dp),
+                                            border = BorderStroke(1.dp, colors.dim.copy(alpha = 0.3f))
+                                        ) {
                                             Text(
-                                                text = msg.sender.uppercase(),
-                                                color = if (isUser) colors.bright else colors.textSecondary,
-                                                fontSize = 9.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                fontFamily = FontFamily.Monospace,
-                                                modifier = Modifier.padding(bottom = 4.dp)
-                                            )
-                                            Text(
-                                                text = msg.text,
+                                                text = label,
                                                 color = Color.White,
                                                 fontSize = 12.sp,
                                                 fontFamily = FontFamily.SansSerif,
-                                                lineHeight = 16.sp
+                                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                                textAlign = TextAlign.Center
                                             )
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            LazyColumn(
+                                state = listState,
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                items(chatMessages) { msg ->
+                                    val isUser = msg.sender == "User"
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+                                    ) {
+                                        Card(
+                                            shape = RoundedCornerShape(
+                                                topStart = 12.dp,
+                                                topEnd = 12.dp,
+                                                bottomStart = if (isUser) 12.dp else 2.dp,
+                                                bottomEnd = if (isUser) 2.dp else 12.dp
+                                            ),
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = if (isUser) colors.bright.copy(alpha = 0.06f) else Color.White.copy(alpha = 0.02f)
+                                            ),
+                                            modifier = Modifier
+                                                .widthIn(max = 280.dp)
+                                                .border(
+                                                    1.dp,
+                                                    if (isUser) colors.bright.copy(alpha = 0.4f) else colors.dim.copy(alpha = 0.2f),
+                                                    RoundedCornerShape(
+                                                        topStart = 12.dp,
+                                                        topEnd = 12.dp,
+                                                        bottomStart = if (isUser) 12.dp else 2.dp,
+                                                        bottomEnd = if (isUser) 2.dp else 12.dp
+                                                    )
+                                                )
+                                        ) {
+                                            Column(modifier = Modifier.padding(10.dp)) {
+                                                Text(
+                                                    text = msg.sender.uppercase(),
+                                                    color = if (isUser) colors.bright else colors.textSecondary,
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    modifier = Modifier.padding(bottom = 4.dp)
+                                                )
+                                                Text(
+                                                    text = msg.text,
+                                                    color = Color.White,
+                                                    fontSize = 12.sp,
+                                                    fontFamily = FontFamily.SansSerif,
+                                                    lineHeight = 16.sp
+                                                )
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
                     }
-                }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                // Voice Visualizer Waves (Google Assistant / Siri Style)
-                if (isListening || assistantReply.isNotEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(28.dp)
-                            .padding(horizontal = 16.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            val centerY = size.height / 2
-                            val width = size.width
-                            val wavePath = Path()
-                            val numWaves = 3
+                    // Voice Visualizer Waves (Google Assistant / Siri Style)
+                    if (isListening || assistantReply.isNotEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(28.dp)
+                                .padding(horizontal = 16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                val centerY = size.height / 2
+                                val width = size.width
+                                val wavePath = Path()
+                                val numWaves = 3
 
-                            for (w in 0 until numWaves) {
-                                val waveAlpha = when (w) {
-                                    0 -> 0.8f
-                                    1 -> 0.5f
-                                    else -> 0.3f
-                                }
-                                val waveColor = colors.bright.copy(alpha = waveAlpha)
-                                val amplitude = if (isListening) (10f + w * 4f) else 4f
-                                val frequency = 0.015f + w * 0.005f
-
-                                wavePath.reset()
-                                wavePath.moveTo(0f, centerY)
-                                for (x in 0..width.toInt() step 5) {
-                                    val y = centerY + amplitude * sin(x * frequency + waveOffset + w)
-                                    wavePath.lineTo(x.toFloat(), y)
-                                }
-                                drawPath(
-                                    path = wavePath,
-                                    color = waveColor,
-                                    style = Stroke(width = 2.dp.toPx())
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // Modern Input Field & Control pill bar
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Voice Mic Pill Button
-                    IconButton(
-                        onClick = { if (isListening) onStopListen() else onStartListen() },
-                        modifier = Modifier
-                            .size(46.dp)
-                            .clip(CircleShape)
-                            .background(if (isListening) colors.bright else Color.White.copy(alpha = 0.03f))
-                            .border(
-                                1.dp,
-                                if (isListening) colors.bright else colors.bright.copy(alpha = 0.4f),
-                                CircleShape
-                            )
-                    ) {
-                        Icon(
-                            imageVector = if (isListening) Icons.Default.Mic else Icons.Default.MicOff,
-                            contentDescription = "Voice Input Control",
-                            tint = if (isListening) Color.Black else colors.bright
-                        )
-                    }
-
-                    // Text Input Bar
-                    OutlinedTextField(
-                        value = textInput,
-                        onValueChange = { textInput = it },
-                        placeholder = {
-                            Text(
-                                "Ask Jarvis / Friday...",
-                                color = colors.textSecondary.copy(alpha = 0.7f),
-                                fontSize = 12.sp,
-                                fontFamily = FontFamily.SansSerif
-                            )
-                        },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = colors.bright,
-                            unfocusedBorderColor = colors.dim.copy(alpha = 0.5f),
-                            focusedContainerColor = Color.White.copy(alpha = 0.01f),
-                            unfocusedContainerColor = Color.White.copy(alpha = 0.01f),
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        ),
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                        keyboardActions = KeyboardActions(onSend = {
-                            if (textInput.trim().isNotEmpty()) {
-                                onSendMessage(textInput)
-                                textInput = ""
-                                focusManager.clearFocus()
-                            }
-                        }),
-                        shape = RoundedCornerShape(24.dp),
-                        modifier = Modifier.weight(1f),
-                        trailingIcon = {
-                            if (textInput.trim().isNotEmpty()) {
-                                IconButton(
-                                    onClick = {
-                                        onSendMessage(textInput)
-                                        textInput = ""
-                                        focusManager.clearFocus()
+                                for (w in 0 until numWaves) {
+                                    val waveAlpha = when (w) {
+                                        0 -> 0.8f
+                                        1 -> 0.5f
+                                        else -> 0.3f
                                     }
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Send,
-                                        contentDescription = "Send",
-                                        tint = colors.bright
+                                    val waveColor = colors.bright.copy(alpha = waveAlpha)
+                                    val amplitude = if (isListening) (10f + w * 4f) else 4f
+                                    val frequency = 0.015f + w * 0.005f
+
+                                    wavePath.reset()
+                                    wavePath.moveTo(0f, centerY)
+                                    for (x in 0..width.toInt() step 5) {
+                                        val y = centerY + amplitude * sin(x * frequency + waveOffset + w)
+                                        wavePath.lineTo(x.toFloat(), y)
+                                    }
+                                    drawPath(
+                                        path = wavePath,
+                                        color = waveColor,
+                                        style = Stroke(width = 2.dp.toPx())
                                     )
                                 }
                             }
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // Modern Input Field & Control pill bar
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        IconButton(
+                            onClick = onStartListen,
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.03f))
+                                .border(1.dp, colors.bright.copy(alpha = 0.4f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = "Voice Input Control",
+                                tint = colors.bright
+                            )
+                        }
+
+                        OutlinedTextField(
+                            value = textInput,
+                            onValueChange = { textInput = it },
+                            placeholder = {
+                                Text(
+                                    "Ask Jarvis / Friday...",
+                                    color = colors.textSecondary.copy(alpha = 0.7f),
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                            },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = colors.bright,
+                                unfocusedBorderColor = colors.dim.copy(alpha = 0.5f),
+                                focusedContainerColor = Color.White.copy(alpha = 0.01f),
+                                unfocusedContainerColor = Color.White.copy(alpha = 0.01f),
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            ),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                            keyboardActions = KeyboardActions(onSend = {
+                                if (textInput.trim().isNotEmpty()) {
+                                    onSendMessage(textInput)
+                                    textInput = ""
+                                    focusManager.clearFocus()
+                                }
+                            }),
+                            shape = RoundedCornerShape(24.dp),
+                            modifier = Modifier.weight(1f),
+                            trailingIcon = {
+                                if (textInput.trim().isNotEmpty()) {
+                                    IconButton(
+                                        onClick = {
+                                            onSendMessage(textInput)
+                                            textInput = ""
+                                            focusManager.clearFocus()
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Send,
+                                            contentDescription = "Send",
+                                            tint = colors.bright
+                                        )
+                                    }
+                                }
+                            }
+                        )
+                    }
+                }
+
+                // ================= STARK TELEMETRY BAR (RIGHT COLUMN FOR TABLETS) =================
+                if (useSplitScreen) {
+                    TelemetrySidebar(
+                        themeMode = themeMode,
+                        onThemeChange = onThemeChange,
+                        batteryPercent = batteryPercent,
+                        isCharging = isCharging,
+                        logs = logs,
+                        thrusters = thrusters,
+                        repulsors = repulsors,
+                        shields = shields,
+                        lifeSupport = lifeSupport,
+                        onThrustersChange = { thrusters = it },
+                        onRepulsorsChange = { repulsors = it },
+                        onShieldsChange = { shields = it },
+                        onLifeSupportChange = { lifeSupport = it },
+                        flashlightState = flashlightState,
+                        onFlashlightToggle = onFlashlightToggle,
+                        colors = colors,
+                        modifier = Modifier
+                            .weight(1.1f)
+                            .fillMaxHeight()
+                            .padding(top = 12.dp, bottom = 12.dp, end = 12.dp)
                     )
                 }
             }
 
-            // ================= STARK TELEMETRY BAR (RIGHT COLUMN FOR TABLETS) =================
-            if (useSplitScreen) {
-                TelemetrySidebar(
-                    themeMode = themeMode,
-                    onThemeChange = onThemeChange,
-                    batteryPercent = batteryPercent,
-                    isCharging = isCharging,
-                    logs = logs,
-                    thrusters = thrusters,
-                    repulsors = repulsors,
-                    shields = shields,
-                    lifeSupport = lifeSupport,
-                    onThrustersChange = { thrusters = it },
-                    onRepulsorsChange = { repulsors = it },
-                    onShieldsChange = { shields = it },
-                    onLifeSupportChange = { lifeSupport = it },
-                    flashlightState = flashlightState,
-                    onFlashlightToggle = onFlashlightToggle,
-                    colors = colors,
-                    modifier = Modifier
-                        .weight(1.1f)
-                        .fillMaxHeight()
-                        .padding(top = 12.dp, bottom = 12.dp, end = 12.dp)
-                )
-            }
-        }
-
-        // ================= STARK TELEMETRY PANEL (DRAWER FOR PHONES) =================
-        if (!useSplitScreen) {
-            AnimatedVisibility(
-                visible = showTelemetryDrawer,
-                enter = slideInHorizontally(initialOffsetX = { it }),
-                exit = slideOutHorizontally(targetOffsetX = { it })
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.5f))
-                        .clickable { showTelemetryDrawer = false }
+            // ================= STARK TELEMETRY PANEL (DRAWER FOR PHONES) =================
+            if (!useSplitScreen) {
+                AnimatedVisibility(
+                    visible = showTelemetryDrawer,
+                    enter = slideInHorizontally(initialOffsetX = { it }),
+                    exit = slideOutHorizontally(targetOffsetX = { it })
                 ) {
                     Box(
                         modifier = Modifier
-                            .fillMaxHeight()
-                            .width(300.dp)
-                            .background(Color(0xFF070C18))
-                            .border(1.dp, colors.bright.copy(alpha = 0.2f), RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
-                            .align(Alignment.CenterEnd)
-                            .clickable { /* prevent clicks close */ }
-                            .padding(16.dp)
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.5f))
+                            .clickable { showTelemetryDrawer = false }
                     ) {
-                        TelemetrySidebar(
-                            themeMode = themeMode,
-                            onThemeChange = onThemeChange,
-                            batteryPercent = batteryPercent,
-                            isCharging = isCharging,
-                            logs = logs,
-                            thrusters = thrusters,
-                            repulsors = repulsors,
-                            shields = shields,
-                            lifeSupport = lifeSupport,
-                            onThrustersChange = { thrusters = it },
-                            onRepulsorsChange = { repulsors = it },
-                            onShieldsChange = { shields = it },
-                            onLifeSupportChange = { lifeSupport = it },
-                            flashlightState = flashlightState,
-                            onFlashlightToggle = onFlashlightToggle,
-                            colors = colors,
-                            modifier = Modifier.fillMaxSize()
-                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .width(300.dp)
+                                .background(Color(0xFF070C18))
+                                .border(1.dp, colors.bright.copy(alpha = 0.2f), RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
+                                .align(Alignment.CenterEnd)
+                                .clickable { /* prevent clicks close */ }
+                                .padding(16.dp)
+                        ) {
+                            TelemetrySidebar(
+                                themeMode = themeMode,
+                                onThemeChange = onThemeChange,
+                                batteryPercent = batteryPercent,
+                                isCharging = isCharging,
+                                logs = logs,
+                                thrusters = thrusters,
+                                repulsors = repulsors,
+                                shields = shields,
+                                lifeSupport = lifeSupport,
+                                onThrustersChange = { thrusters = it },
+                                onRepulsorsChange = { repulsors = it },
+                                onShieldsChange = { shields = it },
+                                onLifeSupportChange = { lifeSupport = it },
+                                flashlightState = flashlightState,
+                                onFlashlightToggle = onFlashlightToggle,
+                                colors = colors,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ================= QUANTUM CONFIGURATIONS POPUP =================
+            if (showSettings) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.85f))
+                        .clickable { /* Block clicks */ },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0E1428)),
+                        modifier = Modifier
+                            .width(350.dp)
+                            .border(1.5.dp, colors.bright, RoundedCornerShape(12.dp)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        LazyColumn(
+                            modifier = Modifier.padding(20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            item {
+                                Text(
+                                    text = "CALIBRATE STARK LINK",
+                                    color = colors.bright,
+                                    fontWeight = FontWeight.Black,
+                                    fontFamily = FontFamily.SansSerif,
+                                    fontSize = 16.sp
+                                )
+                            }
+
+                            // API Format Selection
+                            item {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    Text(
+                                        text = "API TYPE",
+                                        color = colors.bright,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.SansSerif,
+                                        modifier = Modifier.padding(bottom = 6.dp)
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        val formats = listOf("GEMINI", "OPENAI", "OLLAMA")
+                                        formats.forEach { fmt ->
+                                            val isSelected = tempFormat == fmt
+                                            Button(
+                                                onClick = {
+                                                    tempFormat = fmt
+                                                    tempBaseUrl = when (fmt) {
+                                                        "OPENAI" -> "https://api.openai.com"
+                                                        "OLLAMA" -> "http://10.0.2.2:11434"
+                                                        else -> "https://generativelanguage.googleapis.com"
+                                                    }
+                                                    tempModel = when (fmt) {
+                                                        "OPENAI" -> "gpt-4o"
+                                                        "OLLAMA" -> "llama3"
+                                                        else -> "gemini-1.5-flash"
+                                                    }
+                                                },
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = if (isSelected) colors.bright else Color.Transparent,
+                                                    contentColor = if (isSelected) Color.Black else Color.White
+                                                ),
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .border(
+                                                        1.dp,
+                                                        if (isSelected) colors.bright else colors.dim,
+                                                        RoundedCornerShape(6.dp)
+                                                    ),
+                                                shape = RoundedCornerShape(6.dp),
+                                                contentPadding = PaddingValues(vertical = 4.dp)
+                                            ) {
+                                                Text(
+                                                    text = fmt,
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // API Base URL Field
+                            item {
+                                OutlinedTextField(
+                                    value = tempBaseUrl,
+                                    onValueChange = { tempBaseUrl = it },
+                                    label = { Text("API Base URL", fontFamily = FontFamily.Monospace) },
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = colors.bright,
+                                        unfocusedBorderColor = colors.dim,
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White
+                                    ),
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+
+                            // Access Key Field
+                            item {
+                                OutlinedTextField(
+                                    value = tempKey,
+                                    onValueChange = { tempKey = it },
+                                    label = { Text("Access Key / Token", fontFamily = FontFamily.Monospace) },
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = colors.bright,
+                                        unfocusedBorderColor = colors.dim,
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White
+                                    ),
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+
+                            // Custom Model Field
+                            item {
+                                OutlinedTextField(
+                                    value = tempModel,
+                                    onValueChange = { tempModel = it },
+                                    label = { Text("Model Identifier (e.g. gemini-2.5-flash)", fontFamily = FontFamily.Monospace) },
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = colors.bright,
+                                        unfocusedBorderColor = colors.dim,
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White
+                                    ),
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+
+                            // Save & Cancel Buttons
+                            item {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    TextButton(
+                                        onClick = { showSettings = false },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("CANCEL", color = colors.textSecondary, fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold)
+                                    }
+                                    Button(
+                                        onClick = {
+                                            onSettingsSaved(tempKey, tempModel, tempFormat, tempBaseUrl)
+                                            showSettings = false
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = colors.bright),
+                                        shape = RoundedCornerShape(6.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("CALIBRATE", color = Color.Black, fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
 
-        // ================= QUANTUM CONFIGURATIONS POPUP =================
-        if (showSettings) {
+        // ================= IMMERSIVE VOICE CALL OVERLAY =================
+        AnimatedVisibility(
+            visible = isVoiceOverlayOpen,
+            enter = slideInHorizontally(initialOffsetX = { 0 }),
+            exit = slideOutHorizontally(targetOffsetX = { 0 })
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.85f))
-                    .clickable { /* Block clicks */ },
-                contentAlignment = Alignment.Center
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                colors.bright.copy(alpha = 0.15f),
+                                Color(0xFF020617)
+                            ),
+                            radius = 1200f
+                        )
+                    )
+                    .clickable { /* block background clicks */ }
             ) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0D1224)),
+                Column(
                     modifier = Modifier
-                        .width(350.dp)
-                        .border(1.5.dp, colors.bright, RoundedCornerShape(12.dp)),
-                    shape = RoundedCornerShape(12.dp)
+                        .fillMaxSize()
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.SpaceBetween
                 ) {
-                    LazyColumn(
-                        modifier = Modifier.padding(20.dp),
+                    // Header Status
+                    Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                        modifier = Modifier.padding(top = 20.dp)
                     ) {
-                        item {
-                            Text(
-                                text = "CALIBRATE STARK LINK",
-                                color = colors.bright,
-                                fontWeight = FontWeight.Black,
-                                fontFamily = FontFamily.SansSerif,
-                                fontSize = 16.sp
-                            )
-                        }
+                        Text(
+                            text = if (themeMode == ThemeMode.FRIDAY) "F.R.I.D.A.Y. VOICE OVERLINK" else "J.A.R.V.I.S. VOICE OVERLINK",
+                            color = colors.bright.copy(alpha = 0.7f),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = voiceModeStatus,
+                            color = when (voiceModeStatus) {
+                                "LISTENING" -> Color(0xFF10B981)
+                                "THINKING" -> Color(0xFF3B82F6)
+                                "SPEAKING" -> colors.bright
+                                else -> Color(0xFF9CA3AF)
+                            },
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Black,
+                            fontFamily = FontFamily.SansSerif,
+                            modifier = Modifier.graphicsLayer {
+                                val pulseAlpha = when (voiceModeStatus) {
+                                    "LISTENING", "THINKING" -> pulseScale
+                                    else -> 1f
+                                }
+                                alpha = pulseAlpha
+                            }
+                        )
+                    }
 
-                        // API Format selection row
-                        item {
-                            Column(modifier = Modifier.fillMaxWidth()) {
-                                Text(
-                                    text = "API TYPE",
-                                    color = colors.bright,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.SansSerif,
-                                    modifier = Modifier.padding(bottom = 6.dp)
+                    // Immersive Pulsing Core Orb
+                    Box(
+                        modifier = Modifier
+                            .size(240.dp)
+                            .align(Alignment.CenterHorizontally),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val baseRadius = 70.dp.toPx()
+                            val animatedRadius = baseRadius * pulseScale
+                            
+                            // Pulse glowing ring layers
+                            drawCircle(
+                                color = colors.bright.copy(alpha = 0.08f),
+                                radius = animatedRadius * 1.35f
+                            )
+                            drawCircle(
+                                color = colors.bright.copy(alpha = 0.15f),
+                                radius = animatedRadius,
+                                style = Stroke(width = 2.dp.toPx())
+                            )
+                            
+                            // Core solid pulsing gradient
+                            val gradient = Brush.radialGradient(
+                                colors = listOf(
+                                    colors.bright.copy(alpha = 0.8f),
+                                    colors.dim.copy(alpha = 0.3f),
+                                    Color.Transparent
                                 )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    val formats = listOf("GEMINI", "OPENAI", "OLLAMA")
-                                    formats.forEach { fmt ->
-                                        val isSelected = tempFormat == fmt
-                                        Button(
-                                            onClick = {
-                                                tempFormat = fmt
-                                                // Prepopulate defaults base urls
-                                                tempBaseUrl = when (fmt) {
-                                                    "OPENAI" -> "https://api.openai.com"
-                                                    "OLLAMA" -> "http://10.0.2.2:11434"
-                                                    else -> "https://generativelanguage.googleapis.com"
-                                                }
-                                                // Update default model placeholders
-                                                tempModel = when (fmt) {
-                                                    "OPENAI" -> "gpt-4o"
-                                                    "OLLAMA" -> "llama3"
-                                                    else -> "gemini-1.5-flash"
-                                                }
-                                            },
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = if (isSelected) colors.bright else Color.Transparent,
-                                                contentColor = if (isSelected) Color.Black else Color.White
-                                            ),
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .border(
-                                                    1.dp,
-                                                    if (isSelected) colors.bright else colors.dim,
-                                                    RoundedCornerShape(6.dp)
-                                                ),
-                                            shape = RoundedCornerShape(6.dp),
-                                            contentPadding = PaddingValues(vertical = 4.dp)
-                                        ) {
-                                            Text(
-                                                text = fmt,
-                                                fontSize = 9.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                fontFamily = FontFamily.Monospace
-                                            )
-                                        }
-                                    }
-                                }
-                            }
+                            )
+                            drawCircle(
+                                brush = gradient,
+                                radius = baseRadius * pulseScale * 0.9f
+                            )
                         }
+                    }
 
-                        // API Base URL Field
-                        item {
-                            OutlinedTextField(
-                                value = tempBaseUrl,
-                                onValueChange = { tempBaseUrl = it },
-                                label = { Text("API Base URL", fontFamily = FontFamily.Monospace) },
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = colors.bright,
-                                    unfocusedBorderColor = colors.dim,
-                                    focusedTextColor = Color.White,
-                                    unfocusedTextColor = Color.White
-                                ),
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
+                    // Live Transcript text card
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.02f)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 70.dp, max = 150.dp)
+                            .border(1.dp, colors.dim.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = liveTranscript,
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontFamily = FontFamily.SansSerif,
+                                textAlign = TextAlign.Center,
+                                lineHeight = 18.sp
+                            )
+                        }
+                    }
+
+                    // Voice Controls Tray
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(24.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(bottom = 20.dp)
+                    ) {
+                        // Switch to Keyboard Button
+                        IconButton(
+                            onClick = onStopListen,
+                            modifier = Modifier
+                                .size(50.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.04f))
+                                .border(1.dp, colors.dim.copy(alpha = 0.3f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Keyboard,
+                                contentDescription = "Switch to Text",
+                                tint = Color.White
                             )
                         }
 
-                        // API Key Input
-                        item {
-                            OutlinedTextField(
-                                value = tempKey,
-                                onValueChange = { tempKey = it },
-                                label = { Text("Access Key / Token", fontFamily = FontFamily.Monospace) },
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = colors.bright,
-                                    unfocusedBorderColor = colors.dim,
-                                    focusedTextColor = Color.White,
-                                    unfocusedTextColor = Color.White
-                                ),
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
+                        // Play/Pause Mic Button
+                        IconButton(
+                            onClick = onToggleVoiceMute,
+                            modifier = Modifier
+                                .size(72.dp)
+                                .clip(CircleShape)
+                                .background(if (voiceModeStatus == "PAUSED") Color.White.copy(alpha = 0.06f) else colors.bright)
+                                .border(1.dp, colors.bright, CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = if (voiceModeStatus == "PAUSED") Icons.Default.MicOff else Icons.Default.Mic,
+                                contentDescription = "Play/Pause Speech",
+                                tint = if (voiceModeStatus == "PAUSED") Color.White else Color.Black,
+                                modifier = Modifier.size(32.dp)
                             )
                         }
 
-                        // Custom Model Input
-                        item {
-                            OutlinedTextField(
-                                value = tempModel,
-                                onValueChange = { tempModel = it },
-                                label = { Text("Model Identifier (e.g. gemini-2.5-flash)", fontFamily = FontFamily.Monospace) },
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = colors.bright,
-                                    unfocusedBorderColor = colors.dim,
-                                    focusedTextColor = Color.White,
-                                    unfocusedTextColor = Color.White
-                                ),
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
+                        // End Call Button (X red capsule)
+                        IconButton(
+                            onClick = onStopListen,
+                            modifier = Modifier
+                                .size(50.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFEF4444))
+                                .border(1.dp, Color(0xFFEF4444), CircleShape)
+                        ) {
+                            Text(
+                                text = "✕",
+                                color = Color.White,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
                             )
-                        }
-
-                        // Save & Cancel Buttons
-                        item {
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                TextButton(
-                                    onClick = { showSettings = false },
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text("CANCEL", color = colors.textSecondary, fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold)
-                                }
-                                Button(
-                                    onClick = {
-                                        onSettingsSaved(tempKey, tempModel, tempFormat, tempBaseUrl)
-                                        showSettings = false
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = colors.bright),
-                                    shape = RoundedCornerShape(6.dp),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text("CALIBRATE", color = Color.Black, fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold)
-                                }
-                            }
                         }
                     }
                 }

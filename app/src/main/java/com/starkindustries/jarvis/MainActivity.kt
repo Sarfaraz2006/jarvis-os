@@ -56,6 +56,11 @@ class MainActivity : ComponentActivity() {
     private var isListeningState by mutableStateOf(false)
     private var flashlightOn by mutableStateOf(false)
     
+    // Immersive Live Voice States
+    private var isVoiceOverlayOpen by mutableStateOf(false)
+    private var voiceModeStatus by mutableStateOf("PAUSED") // LISTENING, THINKING, SPEAKING, PAUSED
+    private var liveTranscript by mutableStateOf("")
+
     private val telemetryLogs = mutableStateListOf<TelemetryLog>()
     private val chatMessages = mutableStateListOf<ChatMessage>()
 
@@ -146,13 +151,32 @@ class MainActivity : ComponentActivity() {
                     speechInput = speechInputText,
                     assistantReply = aiReplyText,
                     isListening = isListeningState,
+                    isVoiceOverlayOpen = isVoiceOverlayOpen,
+                    voiceModeStatus = voiceModeStatus,
+                    liveTranscript = liveTranscript,
                     onStartListen = {
                         isListeningState = true
+                        isVoiceOverlayOpen = true
+                        voiceModeStatus = "LISTENING"
+                        liveTranscript = "Listening..."
                         voiceEngine?.startListening()
                     },
                     onStopListen = {
                         isListeningState = false
+                        isVoiceOverlayOpen = false
+                        voiceModeStatus = "PAUSED"
                         voiceEngine?.stopListening()
+                    },
+                    onToggleVoiceMute = {
+                        if (voiceModeStatus == "PAUSED") {
+                            voiceModeStatus = "LISTENING"
+                            liveTranscript = "Listening..."
+                            voiceEngine?.startListening()
+                        } else {
+                            voiceModeStatus = "PAUSED"
+                            liveTranscript = "Voice paused."
+                            voiceEngine?.stopListening()
+                        }
                     },
                     apiKey = geminiClient.getApiKey(),
                     activeModel = geminiClient.getModel(),
@@ -177,6 +201,10 @@ class MainActivity : ComponentActivity() {
             context = this,
             onSpeechResult = { text ->
                 speechInputText = text
+                if (isVoiceOverlayOpen) {
+                    liveTranscript = text
+                    voiceModeStatus = "THINKING"
+                }
                 processVoiceCommand(text)
             },
             onTelemetryLog = { msg, type ->
@@ -184,7 +212,9 @@ class MainActivity : ComponentActivity() {
             },
             onSpeechDone = {
                 // Restart listening automatically in voice mode for continuous conversation
-                if (isListeningState) {
+                if (isListeningState && isVoiceOverlayOpen && voiceModeStatus != "PAUSED") {
+                    voiceModeStatus = "LISTENING"
+                    liveTranscript = "Listening..."
                     voiceEngine?.startListening()
                 }
             }
@@ -213,18 +243,24 @@ class MainActivity : ComponentActivity() {
         )
 
         lifecycleScope.launch {
+            if (isVoiceOverlayOpen) {
+                voiceModeStatus = "THINKING"
+            }
+            
             // Local Hardware control shortcuts
             when {
                 query.contains("flashlight on") || query.contains("torch on") -> {
                     toggleFlashlight(true)
                     aiReplyText = "Flashlight activated, sir. Illuminating surrounding sectors."
                     addAssistantMessage(aiReplyText)
+                    updateVoiceOverlaySpeech(aiReplyText)
                     voiceEngine?.speak(aiReplyText)
                 }
                 query.contains("flashlight off") || query.contains("torch off") -> {
                     toggleFlashlight(false)
                     aiReplyText = "Flashlight deactivated, sir. Optical stealth mode initialized."
                     addAssistantMessage(aiReplyText)
+                    updateVoiceOverlaySpeech(aiReplyText)
                     voiceEngine?.speak(aiReplyText)
                 }
                 query.contains("open") -> {
@@ -236,6 +272,7 @@ class MainActivity : ComponentActivity() {
                         "Sir, I could not locate an application named $appToOpen."
                     }
                     addAssistantMessage(aiReplyText)
+                    updateVoiceOverlaySpeech(aiReplyText)
                     voiceEngine?.speak(aiReplyText)
                 }
                 query.contains("red alert") || query.contains("alert red") -> {
@@ -244,6 +281,7 @@ class MainActivity : ComponentActivity() {
                     updateSystemHumFrequency(ThemeMode.RED_ALERT)
                     aiReplyText = "Red alert activated. Combat grids energized. Thrusters and repulsors to maximum!"
                     addAssistantMessage(aiReplyText)
+                    updateVoiceOverlaySpeech(aiReplyText)
                     voiceEngine?.speak(aiReplyText)
                 }
                 query.contains("nominal") || query.contains("stand down") || query.contains("jarvis") -> {
@@ -252,6 +290,7 @@ class MainActivity : ComponentActivity() {
                     updateSystemHumFrequency(ThemeMode.JARVIS)
                     aiReplyText = "Nominal conditions restored, sir. Standing down weapon controls."
                     addAssistantMessage(aiReplyText)
+                    updateVoiceOverlaySpeech(aiReplyText)
                     voiceEngine?.speak(aiReplyText)
                 }
                 query.contains("friday mode") || query.contains("friday") -> {
@@ -260,23 +299,32 @@ class MainActivity : ComponentActivity() {
                     updateSystemHumFrequency(ThemeMode.FRIDAY)
                     aiReplyText = "Friday protocol online. System diagnostics ready, boss. What's the play?"
                     addAssistantMessage(aiReplyText)
+                    updateVoiceOverlaySpeech(aiReplyText)
                     voiceEngine?.speak(aiReplyText)
                 }
                 query.contains("status") || query.contains("diagnostics") -> {
                     val chargingStr = if (isBatteryCharging) "charging" else "discharging"
                     aiReplyText = "Suit battery is currently at $batteryPercent percent and is $chargingStr. Core temperature is nominal, sir."
                     addAssistantMessage(aiReplyText)
+                    updateVoiceOverlaySpeech(aiReplyText)
                     voiceEngine?.speak(aiReplyText)
                 }
                 else -> {
                     // Send to AI satellite uplink
-                    aiReplyText = "Routing command to satellites..."
                     val reply = geminiClient.generateResponse(command, activeTheme == ThemeMode.FRIDAY)
                     aiReplyText = reply
                     addAssistantMessage(reply)
+                    updateVoiceOverlaySpeech(reply)
                     voiceEngine?.speak(reply)
                 }
             }
+        }
+    }
+
+    private fun updateVoiceOverlaySpeech(text: String) {
+        if (isVoiceOverlayOpen) {
+            voiceModeStatus = "SPEAKING"
+            liveTranscript = text
         }
     }
 
